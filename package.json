@@ -1,0 +1,16 @@
+{
+  "name": "la-liga-xi",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build && node scripts/build-server.mjs",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test tests/*.test.js"
+    ,"calibrate": "node scripts/calibrate-openfootball.mjs"
+  },
+  "devDependencies": {
+    "vite": "^7.1.3"
+  }
+}
