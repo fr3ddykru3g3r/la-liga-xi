@@ -202,6 +202,22 @@ for (const player of [...rawArchive,...curatedPlayers]) {
 export const players = [...byCard.values()].map(p => ({...p, club: p.club === 'Mallorca' ? 'RCD Mallorca' : p.club}));
 
 export const clubs = [...new Set(players.map(p => p.club))].sort();
+
+export const historyByPlayer = (() => {
+  const m = new Map();
+  for (const p of players) { if (!m.has(p.playerId)) m.set(p.playerId, []); m.get(p.playerId).push(p); }
+  for (const arr of m.values()) arr.sort((a, b) => a.season.localeCompare(b.season));
+  return m;
+})();
+
+export const legacyByPlayer = (() => {
+  const m = new Map();
+  for (const [id, arr] of historyByPlayer) {
+    const rs = arr.map(x => x.rating).sort((a, b) => b - a);
+    m.set(id, Math.round(rs[0] * .7 + (rs[1] ?? rs[0]) * .2 + (rs[2] ?? rs.at(-1)) * .1));
+  }
+  return m;
+})();
 export const seasons = [...new Set(players.map(p => p.season))].sort();
 
 export const opponentProfiles = [

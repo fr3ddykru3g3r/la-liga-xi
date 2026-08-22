@@ -1,5 +1,5 @@
-import { players, clubs, formations, positionFamily } from './data.js';
-import { rngFrom, spinClubSeason, eligibleForSlot, effectiveRating, teamLines, expectedPointsBand, simulateSeason, legacyRating } from './engine.js';
+import { players, clubs, formations, positionFamily, historyByPlayer, legacyByPlayer } from './data.js';
+import { rngFrom, spinClubSeason, eligibleForSlot, fitFor, effectiveRating, teamLines, expectedPointsBand, simulateSeason } from './engine.js';
 
 const app = document.querySelector('#app');
 const boot = document.querySelector('#boot');
@@ -17,6 +17,22 @@ const modeInfo = {
 const fresh = () => ({ screen:'home', mode:'archive', formation:'4-3-3', ratingMode:'season', difficulty:'normal', club:'Barcelona', minYear:1990, lineup:[], offer:null, turn:0, rerolls:1, result:null, seed:String(Date.now()), toast:'', selectedPlayer:null, serverRun:null, verified:false, trophies:[] });
 let state = fresh();
 let roomState = { code:'', peers:[], connected:false, name:'Manager', progress:{}, send:null, leave:null, role:'host' };
+let selectedSlotIndex = null;
+
+const legacyOf = id => legacyByPlayer.get(id) ?? null;
+const historyOf = id => historyByPlayer.get(id) ?? [];
+
+function swapSlots(indexA, indexB){
+  if(state.mode==='ranked')return announce('Ranked XIs are locked by the server.');
+  const a=state.lineup.find(p=>p.slotIndex===indexA), b=state.lineup.find(p=>p.slotIndex===indexB);
+  if(!a||!b)return;
+  const ids=all=>new Set(all.filter(p=>p!==a&&p!==b).map(p=>p.player.playerId));
+  const okA=fitFor(a.player,b.slot)>0, okB=fitFor(b.player,a.slot)>0;
+  if(!okA||!okB){selectedSlotIndex=null;return announce(`${(!okA?a.player.name:b.player.name)} can't play ${(!okA?b.slot:a.slot)}.`);}
+  a.slot=b.slot; b.slot=a.slot;
+  selectedSlotIndex=null;
+  save(); render(); announce(`${a.player.name} ⇄ ${b.player.name}`);
+}
 
 async function api(path, options={}){
   const response=await fetch(path,{...options,headers:{'content-type':'application/json',...(options.headers||{})}});
@@ -39,7 +55,7 @@ function save(){
   localStorage.setItem('la-liga-xi-state-v1', JSON.stringify(safe));
 }
 function load(){ try { const saved = JSON.parse(localStorage.getItem('la-liga-xi-state-v1')); if(saved) state={...fresh(),...saved,screen:'home'}; } catch {} }
-function setState(patch){ state={...state,...patch}; save(); render(); }
+function setState(patch){ state={...state,...patch}; if('screen' in patch||'lineup' in patch)selectedSlotIndex=null; save(); render(); }
 function announce(message){ state.toast=message; render(); window.setTimeout(()=>{state.toast='';render()},2200); }
 
 function chrome(content){
@@ -99,7 +115,7 @@ async function choosePlayer(id){
   const player=currentCandidates().find(p=>p.id===id); if(!player)return;
   const remaining=openSlotEntries().map(entry=>({...entry,score:effectiveRating(player,entry.slot,state.ratingMode)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
   if(!remaining.length)return announce('That player cannot fill a remaining slot.');
-  state.lineup=[...state.lineup,{slot:remaining[0].slot,slotIndex:remaining[0].slotIndex,player}]; state.offer=null;
+  state.lineup=[...state.lineup,{slot:remaining[0].slot,slotIndex:remaining[0].slotIndex,player}]; state.offer=null; selectedSlotIndex=null;
   if(roomState.send) roomState.send({type:'progress',name:roomState.name,picks:state.lineup.length});
   if(state.lineup.length===11){ state.screen='review'; }
   save(); render();
@@ -108,7 +124,7 @@ function reroll(){ if(state.rerolls<=0)return; state.rerolls--; state.offer=null
 
 function draft(){
   const candidates=currentCandidates(); const lines=state.lineup.length?teamLines(state.lineup,state.ratingMode):{goalkeeping:0,defence:0,midfield:0,attack:0,overall:0,balance:0}; const band=state.lineup.length>=4?expectedPointsBand(lines):null;
-  return chrome(`<main class="page"><div class="section-head"><div><p class="eyebrow">${esc(modeInfo[state.mode][0])} · pick ${state.lineup.length+1}/11</p><h1 class="display">DRAFT ARENA.</h1></div><button class="ghost" data-action="restart">Restart</button></div><div class="draft-grid"><aside class="panel jornada-panel"><div class="panel-body"><div class="panel-title">Jornada dial · ${38-state.lineup.length} ticks alive</div><div class="round-dial"><strong class="display">${String(state.lineup.length+1).padStart(2,'0')}</strong><span>decision</span></div><div class="spin-meta">${state.offer?`${state.offer.poolSize} legal club-seasons were eligible. Uniform draw; ratings never weight the dial.`:`The dial excludes squads that cannot fill an open role.`}</div><button class="primary big-spin" data-action="spin" ${state.offer?'disabled':''}>${state.offer?'Dossier opened':'Spin legal pool'}</button>${state.offer&&state.rerolls>0?`<button class="ghost big-spin" data-action="reroll">Reroll · ${state.rerolls} left</button>`:''}</div></aside><section><div aria-live="polite">${state.offer?`<article class="dossier"><span class="stamp">CLUB-SEASON DOSSIER</span><h2 class="display">${esc(state.offer.club)}</h2><p>${esc(state.offer.season)} · ${candidates.length} eligible players</p></article><div class="candidates">${candidates.map(playerCard).join('')}</div>`:`<div class="empty-dossier"><div><b>NO DOSSIER ON THE DESK</b><p>Spin when you are ready to make the next call.</p></div></div>`}</div></section><aside class="panel squad-panel"><div class="pitch">${formationSlots(state.formation).map(slot=>{const exact=state.lineup.find(p=>p.slotIndex===slot.index);return `<button class="pitch-slot ${exact?'filled':''}" style="left:${slot.x}%;top:${slot.y}%" ${exact?`data-player="${exact.player.id}"`:''}><span><b>${exact?esc(exact.player.name):slot.slot}</b><small>${exact?`${slot.slot} · ${state.difficulty==='hard'||state.mode==='blind'?'??':effectiveRating(exact.player,slot.slot,state.ratingMode)}`:'OPEN'}</small></span></button>`}).join('')}</div><div class="panel-body"><div class="meters">${[['GK',lines.goalkeeping],['DEF',lines.defence],['MID',lines.midfield],['ATT',lines.attack]].map(([n,v])=>`<div class="meter"><b>${v?Math.round(v):'—'}</b><span>${n}</span></div>`).join('')}</div><div class="draft-log">OVR ${lines.overall?Math.round(lines.overall):'—'} · Balance ${lines.balance?Math.round(lines.balance):'—'}${band?` · forecast ${band[0]}–${band[1]} pts`:''}<br>${state.lineup.slice(-3).map(p=>esc(p.player.name)).join(' · ')||'No selections yet'}</div></div></aside></div></main>`);
+  return chrome(`<main class="page"><div class="section-head"><div><p class="eyebrow">${esc(modeInfo[state.mode][0])} · pick ${state.lineup.length+1}/11</p><h1 class="display">DRAFT ARENA.</h1></div><button class="ghost" data-action="restart">Restart</button></div><div class="draft-grid"><aside class="panel jornada-panel"><div class="panel-body"><div class="panel-title">Jornada dial · ${38-state.lineup.length} ticks alive</div><div class="round-dial"><strong class="display">${String(state.lineup.length+1).padStart(2,'0')}</strong><span>decision</span></div><div class="spin-meta">${state.offer?`${state.offer.poolSize} legal club-seasons were eligible. Uniform draw; ratings never weight the dial.`:`The dial excludes squads that cannot fill an open role.`}</div><button class="primary big-spin" data-action="spin" ${state.offer?'disabled':''}>${state.offer?'Dossier opened':'Spin legal pool'}</button>${state.offer&&state.rerolls>0?`<button class="ghost big-spin" data-action="reroll">Reroll · ${state.rerolls} left</button>`:''}</div></aside><section><div aria-live="polite">${state.offer?`<article class="dossier"><span class="stamp">CLUB-SEASON DOSSIER</span><h2 class="display">${esc(state.offer.club)}</h2><p>${esc(state.offer.season)} · ${candidates.length} eligible players</p></article><div class="candidates">${candidates.map(playerCard).join('')}</div>`:`<div class="empty-dossier"><div><b>NO DOSSIER ON THE DESK</b><p>Spin when you are ready to make the next call.</p></div></div>`}</div></section><aside class="panel squad-panel"><div class="pitch">${formationSlots(state.formation).map(slot=>{const exact=state.lineup.find(p=>p.slotIndex===slot.index);return `<button class="pitch-slot ${exact?'filled':''} ${selectedSlotIndex===slot.index?'selected':''}" style="left:${slot.x}%;top:${slot.y}%" data-slot-index="${slot.index}" ${exact?`data-filled="1" draggable="true" title="Tap another slot to swap · drag to move"`:''}><span><b>${exact?esc(exact.player.name):slot.slot}</b><small>${exact?`${slot.slot} · ${state.difficulty==='hard'||state.mode==='blind'?'??':effectiveRating(exact.player,slot.slot,state.ratingMode)}`:'OPEN'}</small></span></button>`}).join('')}</div><div class="panel-body"><div class="meters">${[['GK',lines.goalkeeping],['DEF',lines.defence],['MID',lines.midfield],['ATT',lines.attack]].map(([n,v])=>`<div class="meter"><b>${v?Math.round(v):'—'}</b><span>${n}</span></div>`).join('')}</div><div class="draft-log">OVR ${lines.overall?Math.round(lines.overall):'—'} · Balance ${lines.balance?Math.round(lines.balance):'—'}${band?` · forecast ${band[0]}–${band[1]} pts`:''}<br>${state.lineup.slice(-3).map(p=>esc(p.player.name)).join(' · ')||'No selections yet'}</div></div></aside></div></main>`);
 }
 function playerCard(p){
   const visible=state.difficulty!=='hard'&&state.mode!=='blind'; const rating=state.ratingMode==='prime'?p.prime:p.rating; const slots=openSlots().filter(s=>effectiveRating(p,s,state.ratingMode)>0).sort((a,b)=>effectiveRating(p,b,state.ratingMode)-effectiveRating(p,a,state.ratingMode));
@@ -117,7 +133,7 @@ function playerCard(p){
 
 function review(){
   const lines=teamLines(state.lineup,state.ratingMode), band=expectedPointsBand(lines);
-  return chrome(`<main class="page"><div class="section-head"><div><p class="eyebrow">XI locked · forecast ${band[0]}–${band[1]} points</p><h1 class="display">THE TEAM SHEET.</h1></div><button class="ghost" data-action="restart">Discard XI</button></div><div class="setup-layout"><section class="panel"><div class="pitch">${formationSlots(state.formation).map(slot=>{const p=state.lineup.find(x=>x.slotIndex===slot.index);return `<button class="pitch-slot filled" data-player="${p.player.id}" style="left:${slot.x}%;top:${slot.y}%"><span><b>${esc(p.player.name)}</b><small>${p.slot} · ${effectiveRating(p.player,p.slot,state.ratingMode)}</small></span></button>`}).join('')}</div></section><aside class="panel"><div class="panel-body"><div class="panel-title">Independent strength model</div><div class="rules">${Object.entries(lines).map(([k,v])=>`<div class="rule"><span>${esc(k)}</span><b>${Math.round(v)}</b></div>`).join('')}</div><p class="method-note">The forecast is a range, not a promise. Ratings, positional fit, line balance, home advantage, opponent profiles and seeded Poisson scorelines all affect the run.</p><button class="primary big-spin" data-action="simulate">Simulate 38 jornadas</button></div></aside></div></main>`);
+  return chrome(`<main class="page"><div class="section-head"><div><p class="eyebrow">XI locked · forecast ${band[0]}–${band[1]} points</p><h1 class="display">THE TEAM SHEET.</h1></div><button class="ghost" data-action="restart">Discard XI</button></div><div class="setup-layout"><section class="panel"><div class="pitch">${formationSlots(state.formation).map(slot=>{const p=state.lineup.find(x=>x.slotIndex===slot.index);return `<button class="pitch-slot filled ${selectedSlotIndex===slot.index?'selected':''}" data-slot-index="${slot.index}" data-filled="1" draggable="true" style="left:${slot.x}%;top:${slot.y}%" title="Tap another slot to swap · drag to move"><span><b>${esc(p.player.name)}</b><small>${p.slot} · ${effectiveRating(p.player,p.slot,state.ratingMode)}</small></span></button>`}).join('')}</div><p class="method-note">Tap a player then tap another slot to swap · or drag and drop.</p></section><aside class="panel"><div class="panel-body"><div class="panel-title">Independent strength model</div><div class="rules">${Object.entries(lines).map(([k,v])=>`<div class="rule"><span>${esc(k)}</span><b>${Math.round(v)}</b></div>`).join('')}</div><p class="method-note">The forecast is a range, not a promise. Ratings, positional fit, line balance, home advantage, opponent profiles and seeded Poisson scorelines all affect the run.</p><button class="primary big-spin" data-action="simulate">Simulate 38 jornadas</button></div></aside></div></main>`);
 }
 async function doSimulate(){
   if(state.mode==='ranked'){
@@ -131,13 +147,20 @@ function result(){
   const r=state.result; return chrome(`<main class="page"><div class="section-head"><div><p class="eyebrow">Seeded result · ${esc(state.formation)} · ${esc(state.ratingMode)}</p><h1 class="display">SEASON COMPLETE.</h1></div></div><div class="result-hero"><section class="scoreboard"><div class="record display">${r.wins}-${r.draws}-${r.losses}</div><div class="points">${r.points} / 114 POINTS</div><div class="scoreboard-grid"><div><b>${r.finish}${r.finish===1?'st':r.finish===2?'nd':r.finish===3?'rd':'th'}</b><span>finish</span></div><div><b>${r.goalsFor}</b><span>goals for</span></div><div><b>${r.goalsAgainst}</b><span>against</span></div><div><b>${Math.round(r.lines.overall)}</b><span>overall</span></div><div><b>${Math.round(r.lines.balance)}</b><span>balance</span></div><div><b>${r.seed.slice(-8)}</b><span>seed proof</span></div></div></section><aside class="panel"><div class="panel-body"><div class="panel-title">38-jornada ledger</div><div class="timeline">${r.matches.map(m=>`<button class="match ${m.result}" title="J${m.jornada}: ${m.goalsFor}-${m.goalsAgainst} vs ${m.opponent}">${m.result}</button>`).join('')}</div><div class="awards"><div class="award"><span>Golden Boot</span><b>${esc(r.goldenBoot.player.name)}</b><p>${r.goldenBoot.goals} goals</p></div><div class="award"><span>Player of season</span><b>${esc(r.playerOfSeason.player.name)}</b><p>${r.playerOfSeason.goals}G · ${r.playerOfSeason.assists}A</p></div></div><div class="result-actions"><button class="primary" data-action="share">Copy result</button><button class="ghost" data-action="restart">Draft again</button><button class="ghost" data-action="home">Home</button></div></div></aside></div></main>`);
 }
 
+function atlasFiltered(){
+  const q=(state.atlasQuery||'').toLowerCase(), club=state.atlasClub||'', pos=state.atlasPos||'';
+  return players.filter(p=>(!q||p.name.toLowerCase().includes(q))&&(!club||p.club===club)&&(!pos||p.positions.includes(pos))).slice(0,180);
+}
+function atlasRows(list){
+  return list.map(p=>`<tr data-player="${p.id}" tabindex="0"><td><b>${esc(p.name)}</b></td><td>${esc(p.club)} · ${p.season}</td><td>${p.positions.join(' / ')}</td><td>${p.rating}</td><td>${p.prime}</td><td>${legacyOf(p.playerId)}</td></tr>`).join('');
+}
 function atlas(){
-  const q=state.atlasQuery||'', club=state.atlasClub||'', pos=state.atlasPos||''; const list=players.filter(p=>(!q||p.name.toLowerCase().includes(q.toLowerCase()))&&(!club||p.club===club)&&(!pos||p.positions.includes(pos))).slice(0,180);
-  return chrome(`<main class="page"><div class="section-head"><div><p class="eyebrow">Transparent rating layers</p><h1 class="display">RATINGS ATLAS.</h1></div><p>Season is the selected campaign. Prime is the best card in our starter archive. Legacy blends a player’s best three archived seasons.</p></div><div class="atlas-toolbar"><input aria-label="Search players" placeholder="Search a player" value="${esc(q)}" data-atlas="query"><select aria-label="Filter club" data-atlas="club"><option value="">All clubs</option>${clubs.map(c=>`<option ${club===c?'selected':''}>${esc(c)}</option>`).join('')}</select><select aria-label="Filter position" data-atlas="pos"><option value="">All positions</option>${['GK','RB','CB','LB','CDM','CM','CAM','RW','ST','LW'].map(p=>`<option ${pos===p?'selected':''}>${p}</option>`).join('')}</select></div><div class="atlas-wrap"><table class="atlas-table"><thead><tr><th>Player</th><th>Club-season</th><th>Role</th><th>Season</th><th>Prime</th><th>Legacy</th></tr></thead><tbody>${list.map(p=>`<tr data-player="${p.id}" tabindex="0"><td><b>${esc(p.name)}</b></td><td>${esc(p.club)} · ${p.season}</td><td>${p.positions.join(' / ')}</td><td>${p.rating}</td><td>${p.prime}</td><td>${legacyRating(p.playerId,players)}</td></tr>`).join('')}</tbody></table></div><p class="method-note">Starter archive: independent editorial ratings for gameplay, with confidence tier A or B. They are not official La Liga, club, player-association, or video-game publisher ratings.</p></main>`);
+  const q=state.atlasQuery||'', club=state.atlasClub||'', pos=state.atlasPos||''; const list=atlasFiltered();
+  return chrome(`<main class="page"><div class="section-head"><div><p class="eyebrow">Transparent rating layers</p><h1 class="display">RATINGS ATLAS.</h1></div><p>Season is the selected campaign. Prime is the best card in our starter archive. Legacy blends a player’s best three archived seasons.</p></div><div class="atlas-toolbar"><input aria-label="Search players" placeholder="Search a player" value="${esc(q)}" data-atlas="query"><select aria-label="Filter club" data-atlas="club"><option value="">All clubs</option>${clubs.map(c=>`<option ${club===c?'selected':''}>${esc(c)}</option>`).join('')}</select><select aria-label="Filter position" data-atlas="pos"><option value="">All positions</option>${['GK','RB','CB','LB','CDM','CM','CAM','RW','ST','LW'].map(p=>`<option ${pos===p?'selected':''}>${p}</option>`).join('')}</select></div><div class="atlas-wrap"><table class="atlas-table"><thead><tr><th>Player</th><th>Club-season</th><th>Role</th><th>Season</th><th>Prime</th><th>Legacy</th></tr></thead><tbody id="atlas-body">${atlasRows(list)}</tbody></table></div><p class="method-note">Starter archive: independent editorial ratings for gameplay, with confidence tier A or B. They are not official La Liga, club, player-association, or video-game publisher ratings.</p></main>`);
 }
 function drawer(p){
-  const history=players.filter(x=>x.playerId===p.playerId).sort((a,b)=>a.season.localeCompare(b.season));
-  return `<div class="drawer-backdrop" data-action="close-drawer"><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="player-title"><button class="drawer-close" data-action="close-drawer" aria-label="Close">×</button><p class="eyebrow">Player rating dossier</p><h2 id="player-title" class="display">${esc(p.name)}</h2><p>${p.positions.join(' · ')} · Prime ${p.prime} · Legacy ${legacyRating(p.playerId,players)}</p><div class="history">${history.map(h=>`<div class="history-row"><b>${esc(h.club)}</b><span>${h.season}</span><strong>${h.rating}</strong></div>`).join('')}</div><div class="method-note"><b>How to read this</b><p>Season rating describes that club campaign. Prime is the highest independent rating attached to the player. Legacy is 70% peak, 20% next-best and 10% third-best available card. Sparse history falls back to the known card and is labelled as an editorial estimate.</p></div></aside></div>`;
+  const history=historyOf(p.playerId);
+  return `<div class="drawer-backdrop" data-action="close-drawer"><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="player-title"><button class="drawer-close" data-action="close-drawer" aria-label="Close">×</button><p class="eyebrow">Player rating dossier</p><h2 id="player-title" class="display">${esc(p.name)}</h2><p>${p.positions.join(' · ')} · Prime ${p.prime} · Legacy ${legacyOf(p.playerId)}</p><div class="history">${history.map(h=>`<div class="history-row"><b>${esc(h.club)}</b><span>${h.season}</span><strong>${h.rating}</strong></div>`).join('')}</div><div class="method-note"><b>How to read this</b><p>Season rating describes that club campaign. Prime is the highest independent rating attached to the player. Legacy is 70% peak, 20% next-best and 10% third-best available card. Sparse history falls back to the known card and is labelled as an editorial estimate.</p></div></aside></div>`;
 }
 
 let leaderboardData=null,profileData=null,remoteError='';
@@ -208,6 +231,14 @@ app.addEventListener('click', async event=>{
     }else{const seed=state.mode==='daily'?new Date().toISOString().slice(0,10):String(Date.now());setState({screen:'draft',lineup:[],offer:null,turn:0,result:null,seed,verified:false,trophies:[]});}
   }
   if(action==='spin')await spin(); if(action==='reroll')reroll(); if(el.dataset.pick)await choosePlayer(el.dataset.pick);
+  if(el.dataset.slotIndex!==undefined&&el.dataset.filled){
+    const idx=Number(el.dataset.slotIndex); const pick=state.lineup.find(p=>p.slotIndex===idx);
+    if(!pick)return;
+    if(selectedSlotIndex===null){selectedSlotIndex=idx;render();}
+    else if(selectedSlotIndex===idx){selectedSlotIndex=null;render();}
+    else swapSlots(selectedSlotIndex,idx);
+    return;
+  }
   if(el.dataset.player){ const p=players.find(x=>x.id===el.dataset.player);if(p)setState({selectedPlayer:p}); }
   if(action==='close-drawer'){ event.stopPropagation();setState({selectedPlayer:null}); }
   if(action==='restart'){ if(confirm('Discard this run and return to setup?'))setState({...fresh(),screen:'setup',mode:state.mode,formation:state.formation,ratingMode:state.ratingMode,difficulty:state.difficulty,club:state.club,minYear:state.minYear}); }
@@ -218,8 +249,46 @@ app.addEventListener('click', async event=>{
   if(action==='start-duel'){ state.mode='duel';state.screen='setup';state.seed=`duel|${roomState.code}`;render(); }
 });
 app.addEventListener('change',event=>{const el=event.target;if(el.dataset.field)setState({[el.dataset.field]:el.dataset.field==='minYear'?Number(el.value):el.value});if(el.dataset.atlas==='club'){state.atlasClub=el.value;render()}if(el.dataset.atlas==='pos'){state.atlasPos=el.value;render()}if(el.dataset.room==='name')roomState.name=el.value;if(el.dataset.room==='code')roomState.code=el.value.toUpperCase();});
-app.addEventListener('input',event=>{if(event.target.dataset.atlas==='query'){state.atlasQuery=event.target.value;render();}});
+let atlasTimer=null;
+app.addEventListener('input',event=>{
+  if(event.target.dataset.atlas==='query'){
+    state.atlasQuery=event.target.value;
+    clearTimeout(atlasTimer);
+    atlasTimer=setTimeout(()=>{
+      const body=document.querySelector('#atlas-body');
+      if(body)body.innerHTML=atlasRows(atlasFiltered());
+    },140);
+  }
+});
 app.addEventListener('keydown',event=>{const row=event.target.closest('tr[data-player]');if(row&&(event.key==='Enter'||event.key===' ')){event.preventDefault();const p=players.find(x=>x.id===row.dataset.player);if(p)setState({selectedPlayer:p});}});
+
+let dragFrom=null;
+app.addEventListener('dragstart',event=>{
+  const el=event.target.closest('[data-slot-index][data-filled]');
+  if(!el)return;
+  dragFrom=Number(el.dataset.slotIndex);
+  el.classList.add('dragging');
+  event.dataTransfer.effectAllowed='move';
+  try{event.dataTransfer.setData('text/plain',String(dragFrom));}catch{}
+});
+app.addEventListener('dragend',()=>{
+  dragFrom=null;
+  app.querySelectorAll('.dragging,.drop-target').forEach(x=>x.classList.remove('dragging','drop-target'));
+});
+app.addEventListener('dragover',event=>{
+  const el=event.target.closest('.pitch-slot[data-filled]');
+  if(el&&dragFrom!==null&&dragFrom!==Number(el.dataset.slotIndex)){event.preventDefault();event.dataTransfer.dropEffect='move';el.classList.add('drop-target');}
+});
+app.addEventListener('dragleave',event=>{const el=event.target.closest('.pitch-slot');if(el)el.classList.remove('drop-target');});
+app.addEventListener('drop',event=>{
+  const el=event.target.closest('.pitch-slot[data-filled]');
+  if(!el||dragFrom===null)return;
+  event.preventDefault();
+  const to=Number(el.dataset.slotIndex);
+  if(to!==dragFrom)swapSlots(dragFrom,to);
+  dragFrom=null;
+  app.querySelectorAll('.dragging,.drop-target').forEach(x=>x.classList.remove('dragging','drop-target'));
+});
 
 load();
 Promise.race([document.fonts?.ready||Promise.resolve(),new Promise(r=>setTimeout(r,1800))]).then(()=>{document.documentElement.classList.remove('fonts-loading');document.documentElement.classList.add('fonts-ready');boot.remove();render();});

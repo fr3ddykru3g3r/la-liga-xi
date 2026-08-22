@@ -45,3 +45,10 @@ button,input,select{font:inherit} button{color:inherit} a{color:inherit}.fonts-l
 @media(max-width:900px){.profile-grid,.method-grid{grid-template-columns:1fr}.trophy-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.top-actions{gap:2px}.top-actions .nav-button{padding-inline:8px;font-size:.68rem}}
 @media(max-width:560px){.top-actions .nav-button:not(:last-child){display:none}.trophy-grid{grid-template-columns:1fr}.run-row{grid-template-columns:80px 1fr}.run-row span:last-child{grid-column:1/-1}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition:none!important}}
+/* Slot swap interaction */
+.pitch-slot{transition:transform .12s ease,box-shadow .12s ease}
+.pitch-slot.filled{cursor:grab;touch-action:manipulation}
+.pitch-slot.selected{border-color:var(--flood);box-shadow:0 0 0 2px var(--flood),0 6px 18px rgba(255,209,102,.25);transform:translate(-50%,-50%) scale(1.08);z-index:6}
+.pitch-slot.dragging{opacity:.45}
+.pitch-slot.drop-target{border-color:var(--flood);box-shadow:0 0 0 2px var(--flood)}
+@media(hover:hover){.pitch-slot.filled:hover{transform:translate(-50%,-50%) scale(1.05)}}
