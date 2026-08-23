@@ -22,7 +22,7 @@ const opponents = [
 
 export const family = p => p==='GK'?'gk':['RB','LB','CB','RWB','LWB'].includes(p)?'def':['CDM','CM','CAM','RM','LM'].includes(p)?'mid':'att';
 export function fit(card,slot){const i=card.positions.indexOf(slot);if(i===0)return 1;if(i===1)return .98;if(i>1)return .96;return card.positions.some(p=>family(p)===family(slot)) ? 0.91 : 0;}
-export const effective = (card,slot,mode='season') => Math.round((mode==='prime'?card.prime:card.rating)*fit(card,slot));
+export const effective = (card,slot,mode='season') => Math.round((mode==='prime'?card.prime:mode==='legacy'?card.legacy:card.rating)*fit(card,slot));
 
 function hash32(value){let h=2166136261;for(const c of String(value)){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0;}
 export function rng(seed){let a=hash32(seed)||1;return()=>{a+=0x6D2B79F5;let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}

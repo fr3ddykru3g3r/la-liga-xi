@@ -30,7 +30,8 @@ export function fitFor(player, slot) {
 }
 
 export function effectiveRating(player, slot, ratingMode = 'season') {
-  return Math.round((ratingMode === 'prime' ? player.prime : player.rating) * fitFor(player, slot));
+  const rating = ratingMode === 'prime' ? player.prime : ratingMode === 'legacy' ? player.legacy : player.rating;
+  return Math.round(rating * fitFor(player, slot));
 }
 
 export function eligibleForSlot(player, slot, draftedPlayerIds = []) {

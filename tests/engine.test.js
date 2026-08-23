@@ -42,3 +42,16 @@ test('legacy rating is bounded by archived season ratings', () => {
   const id='luis-suarez'; const values=players.filter(p=>p.playerId===id).map(p=>p.rating); const legacy=legacyRating(id,players);
   assert.ok(legacy>=Math.min(...values)&&legacy<=Math.max(...values));
 });
+
+test('legacy lens is available on every card and drives team strength', () => {
+  assert.ok(players.every(player => Number.isFinite(player.legacy)));
+  const xi=buildXI();
+  const lines=teamLines(xi,'legacy');
+  assert.ok(Number.isFinite(lines.overall));
+  assert.ok(lines.overall >= 0 && lines.overall <= 100);
+});
+
+test('client and authoritative formation catalogues stay expansive', () => {
+  assert.ok(Object.keys(formations).length >= 12);
+  assert.ok(Object.values(formations).every(slots => slots.length === 11));
+});
