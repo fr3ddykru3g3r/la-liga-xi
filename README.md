@@ -46,6 +46,10 @@ npm run dev
 
 Production build: `npm run build`. The app is deployable as a static Vite project on Vercel.
 
+## GitHub Pages
+
+The included Pages workflow builds and publishes the casual game after every push to `main`. In the repository settings, choose **GitHub Actions** as the Pages source, then run the **Deploy GitHub Pages** workflow (or push to `main`). Ranked profiles and leaderboards require the server/D1 deployment; the static Pages build includes the complete guest draft, season simulation, Ratings Atlas, and casual peer room.
+
 ## Multiplayer integrity
 
 Head-to-Head uses WebRTC data channels with deterministic shared seeds and peer validation. It remains explicitly casual and unranked. Ranked Run is separate: the Sites Worker issues every draw, validates each pick against its canonical card catalogue, simulates the season, stores the result in D1, awards trophies and exposes only server-generated results to the leaderboard.

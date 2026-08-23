@@ -199,7 +199,14 @@ for (const player of [...rawArchive,...curatedPlayers]) {
   const existing=byCard.get(key);
   if(!existing || player.rating>existing.rating) byCard.set(key,{...player,prime:peakByPlayer.get(player.playerId)});
 }
-export const players = [...byCard.values()].map(p => ({...p, club: p.club === 'Mallorca' ? 'RCD Mallorca' : p.club}));
+const archivedPlayers = [...byCard.values()].map(p => ({...p, club: p.club === 'Mallorca' ? 'RCD Mallorca' : p.club}));
+const legacyRatings = new Map();
+for (const player of archivedPlayers) {
+  const ratings = archivedPlayers.filter(card => card.playerId === player.playerId).map(card => card.rating).sort((a,b) => b-a);
+  legacyRatings.set(player.playerId, Math.round(ratings[0] * .7 + (ratings[1] ?? ratings[0]) * .2 + (ratings[2] ?? ratings.at(-1)) * .1));
+}
+// Every card carries all three lenses so browser and server replays use the same value.
+export const players = archivedPlayers.map(player => ({...player, legacy:legacyRatings.get(player.playerId)}));
 
 export const clubs = [...new Set(players.map(p => p.club))].sort();
 
@@ -211,12 +218,7 @@ export const historyByPlayer = (() => {
 })();
 
 export const legacyByPlayer = (() => {
-  const m = new Map();
-  for (const [id, arr] of historyByPlayer) {
-    const rs = arr.map(x => x.rating).sort((a, b) => b - a);
-    m.set(id, Math.round(rs[0] * .7 + (rs[1] ?? rs[0]) * .2 + (rs[2] ?? rs.at(-1)) * .1));
-  }
-  return m;
+  return legacyRatings;
 })();
 export const seasons = [...new Set(players.map(p => p.season))].sort();
 
@@ -234,8 +236,15 @@ export const formations = {
   '4-3-3': ['GK','RB','CB','CB','LB','CM','CM','CM','RW','ST','LW'],
   '4-4-2': ['GK','RB','CB','CB','LB','RM','CM','CM','LM','ST','ST'],
   '4-2-3-1': ['GK','RB','CB','CB','LB','CDM','CDM','RW','CAM','LW','ST'],
+  '4-5-1': ['GK','RB','CB','CB','LB','RM','CM','CDM','CM','LM','ST'],
+  '4-1-4-1': ['GK','RB','CB','CB','LB','CDM','RM','CM','CM','LM','ST'],
+  '4-3-1-2': ['GK','RB','CB','CB','LB','CM','CDM','CM','CAM','ST','ST'],
   '3-5-2': ['GK','CB','CB','CB','RWB','CM','CDM','CM','LWB','ST','ST'],
   '4-1-2-1-2': ['GK','RB','CB','CB','LB','CDM','CM','CM','CAM','ST','ST'],
+  '4-4-1-1': ['GK','RB','CB','CB','LB','RM','CM','CM','LM','CAM','ST'],
+  '4-2-2-2': ['GK','RB','CB','CB','LB','CDM','CDM','CAM','CAM','ST','ST'],
+  '3-4-3': ['GK','CB','CB','CB','RM','CM','CM','LM','RW','ST','LW'],
+  '5-4-1': ['GK','RWB','CB','CB','CB','LWB','RM','CM','CM','LM','ST'],
   '5-3-2': ['GK','RWB','CB','CB','CB','LWB','CM','CM','CM','ST','ST']
 };
 
